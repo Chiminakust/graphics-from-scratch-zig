@@ -1,15 +1,14 @@
 const std = @import("std");
 const inf = std.math.inf(float);
-//const sqrt = std.math.sqrt;
 const pow = std.math.pow;
 
-// typedef
-const float = f32;
-const int = i64;
-
-// canvas dimensions
-const width: int = 512;
-const height: int = 512;
+const utils = @import("utils.zig");
+const Pixel = utils.Pixel;
+const Color = utils.Color;
+const int = utils.int;
+const float = utils.float;
+const width = utils.width;
+const height = utils.height;
 
 // viewport consts
 const Vw: float = 1.0;
@@ -118,29 +117,6 @@ const scene = Scene{
     },
 };
 
-const Pixel = struct {
-    r: u8,
-    g: u8,
-    b: u8,
-
-    pub fn apply_light(self: Pixel, intensity: float) Pixel {
-        const valid_intensity = std.math.clamp(intensity, 0, 1);
-        return Pixel{
-            .r = @intFromFloat(@as(float, @floatFromInt(self.r)) * valid_intensity),
-            .g = @intFromFloat(@as(float, @floatFromInt(self.g)) * valid_intensity),
-            .b = @intFromFloat(@as(float, @floatFromInt(self.b)) * valid_intensity),
-        };
-    }
-
-    pub fn add(self: Pixel, other: Pixel) Pixel {
-        return .{
-            .r = self.r +| other.r,
-            .g = self.g +| other.g,
-            .b = self.b +| other.b,
-        };
-    }
-};
-const Color = Pixel;
 const BG_COLOR = Pixel{
     .r = 255,
     .g = 255,
@@ -189,26 +165,6 @@ const LightSource = struct {
 };
 
 var canvas: [width * height]Pixel = undefined;
-
-pub fn put_canvas(x: usize, y: usize, color: Color) void {
-    canvas[x + (y * width)].r = color.r;
-    canvas[x + (y * width)].g = color.g;
-    canvas[x + (y * width)].b = color.b;
-}
-
-pub fn write_canvas(path: []const u8) !void {
-    var file = try std.fs.cwd().createFile(path, .{ .read = true });
-    defer file.close();
-
-    const writer = file.writer();
-
-    // P3 means RGB, and 255 is the max value for each color
-    try writer.print("P3\n{} {}\n255\n", .{ width, height });
-
-    for (canvas) |pixel| {
-        try writer.print("{} {} {}\n", .{ pixel.r, pixel.g, pixel.b });
-    }
-}
 
 pub fn canvas_to_viewport(cx: int, cy: int) Coord3D {
     return Coord3D.new(@as(float, @floatFromInt(cx)) * (Vw / width), @as(float, @floatFromInt(cy)) * (Vh / height), d);
@@ -340,9 +296,9 @@ pub fn main() !void {
         for (0..height) |y| {
             const D = canvas_to_viewport(@as(int, @intCast(x)) - (width / 2), @as(int, @intCast(y)) - (height / 2));
             const color = trace_ray(ORIGIN, D, 1, inf, recurse_max);
-            put_canvas(x, y, color);
+            utils.put_canvas(&canvas, x, y, color);
         }
     }
 
-    try write_canvas("test.ppm");
+    try utils.write_canvas(&canvas, "test.ppm");
 }
