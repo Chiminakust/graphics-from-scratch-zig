@@ -164,7 +164,11 @@ const LightSource = struct {
     }
 };
 
-var canvas: [width * height]Pixel = undefined;
+var canvas: utils.Canvas = .{
+    .width = width,
+    .height = height,
+    .pixels = undefined,
+};
 
 pub fn canvas_to_viewport(cx: int, cy: int) Coord3D {
     return Coord3D.new(@as(float, @floatFromInt(cx)) * (Vw / width), @as(float, @floatFromInt(cy)) * (Vh / height), d);
@@ -289,16 +293,16 @@ pub fn reflect_ray(L: Vec3D, N: Vec3D) Vec3D {
 
 pub fn main() !void {
     // Prints to stderr (it's a shortcut based on `std.io.getStdErr()`)
-    std.debug.print("canvas is {d} bytes large\n", .{canvas.len});
+    std.debug.print("canvas is {d} bytes large\n", .{canvas.pixels.len});
     const ORIGIN = Coord3D.new(0, 0, 0);
 
     for (0..width) |x| {
         for (0..height) |y| {
             const D = canvas_to_viewport(@as(int, @intCast(x)) - (width / 2), @as(int, @intCast(y)) - (height / 2));
             const color = trace_ray(ORIGIN, D, 1, inf, recurse_max);
-            utils.put_canvas(&canvas, x, y, color);
+            canvas.put(x, y, color);
         }
     }
 
-    try utils.write_canvas(&canvas, "test.ppm");
+    try utils.write_canvas(&canvas.pixels, "test.ppm");
 }

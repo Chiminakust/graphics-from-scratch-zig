@@ -15,9 +15,9 @@ const height = utils.height;
 
 const Black = Color {.r = 0, .g = 0, .b = 0};
 const White = Color {.r = 0xff, .g = 0xff, .b = 0xff};
+const Green = Color {.r = 0, .g = 0xff, .b = 0};
 
-//var interp_buffer_mem: [@as(u64, @max(width, height)) * @sizeOf(usize)]u8 = undefined;
-const interp_buf_size = nextCapacity(@as(usize, @max(width, height))) * @sizeOf(usize);
+const interp_buf_size = nextCapacity(@as(usize, @max(width, height))) * @sizeOf(usize) * 2;
 var interp_buffer_mem: [interp_buf_size]u8 = undefined;
 
 // Geometry stuff
@@ -34,10 +34,33 @@ const Coord2D = struct {
     }
 };
 
-// global variables
-var gcanvas: [width * height]Pixel = undefined;
+const Triangle = struct {
+    p0: Coord2D,
+    p1: Coord2D,
+    p2: Coord2D,
 
-fn drawLine(p0: Coord2D, p1: Coord2D, color: Color, canvas: []Pixel, allocator: Allocator) !void {
+    /// sort by increasing value in Y axis, modifies the triangle
+    pub fn sortY(self: *Triangle) void {
+        if (self.p1.y < self.p0.y) {
+            Coord2D.swap(&self.p1, &self.p0);
+        }
+        if (self.p2.y < self.p0.y) {
+            Coord2D.swap(&self.p2, &self.p0);
+        }
+        if (self.p2.y < self.p1.y) {
+            Coord2D.swap(&self.p2, &self.p1);
+        }
+    }
+};
+
+// global variables
+var canvas: utils.Canvas = .{
+    .width = width,
+    .height = height,
+    .pixels = undefined,
+};
+
+fn drawLine(p0: Coord2D, p1: Coord2D, color: Color, allocator: Allocator) !void {
     var ind0: float = 0;
     var ind1: float = 0;
     var dep0: float = 0;
@@ -65,7 +88,7 @@ fn drawLine(p0: Coord2D, p1: Coord2D, color: Color, canvas: []Pixel, allocator: 
         const start: usize = @intFromFloat(ind0);
         const end: usize = @intFromFloat(ind1);
         for (start..end) |x| {
-            utils.put_canvas(canvas, x, list.items[x - start], color);
+            canvas.put(x, list.items[x - start], color);
         }
     } else {
         // make sure x0 < x1 (draw horizontal)
@@ -86,7 +109,7 @@ fn drawLine(p0: Coord2D, p1: Coord2D, color: Color, canvas: []Pixel, allocator: 
         const start: usize = @intFromFloat(ind0);
         const end: usize = @intFromFloat(ind1);
         for (start..end) |y| {
-            utils.put_canvas(canvas, list.items[y - start], y, color);
+            canvas.put(list.items[y - start], y, color);
         }
     }
 }
@@ -107,38 +130,82 @@ fn interpolate(ind0: float, dep0: float, ind1: float, dep1: float, list: *std.Ar
         try list.append(@intFromFloat(d));
         d += a;
     }
-    print("done loop {} times, cap is {}\n", .{end - start, list.capacity});
+}
+
+pub fn drawWireTriangle(triangle: Triangle, color: Color, allocator: Allocator) !void {
+    try drawLine(triangle.p0, triangle.p1, color, allocator);
+    try drawLine(triangle.p1, triangle.p2, color, allocator);
+    try drawLine(triangle.p2, triangle.p0, color, allocator);
+}
+
+pub fn drawFillTriangle(triangle: *Triangle, color: Color, allocator: Allocator) !void {
+    // sort vertices
+    triangle.sortY();
+
+    // compute X coords of edges
+    var x01 = std.ArrayList(usize).init(allocator);
+    var x12 = std.ArrayList(usize).init(allocator);
+    var x02 = std.ArrayList(usize).init(allocator);
+
+    try interpolate(triangle.p0.y, triangle.p0.x, triangle.p1.y, triangle.p1.x, &x01);
+    try interpolate(triangle.p1.y, triangle.p1.x, triangle.p2.y, triangle.p2.x, &x12);
+    try interpolate(triangle.p0.y, triangle.p0.x, triangle.p2.y, triangle.p2.x, &x02);
+
+    // concatenate short sides
+    print("before concatenation x01 has len {} and x02 has len {}\n", .{x01.items.len, x12.items.len});
+    //_ = x01.pop();
+    try x01.appendSlice(x12.items);
+
+    // determine which is left and which is right
+    const middle = x01.items.len / 2;
+    var x_left = x01.items;
+    var x_right = x02.items;
+    if (x02.items[middle] < x01.items[middle]) {
+        x_left = x02.items;
+        x_right = x01.items;
+        print("x02 is left, x01 is right\n", .{});
+    }
+
+    // draw horizontal segments to fill the triangle
+    const y_start: usize = @intFromFloat(triangle.p0.y);
+    const y_end: usize = @intFromFloat(triangle.p2.y);
+    print("filling triangle from {} to {}\n", .{y_start, y_end});
+    print("lens are {} and {}\n", .{x_left.len, x_right.len});
+    for (y_start..y_end) |y| {
+        print("triangle fill line {}\n", .{y - y_start});
+        const x_start = x_left[y - y_start];
+        const x_end = x_right[y - y_start];
+        for (x_start..x_end) |x| {
+            canvas.put(x, y, color);
+        }
+    }
 }
 
 pub fn main() !void {
 
-    print("canvas is {d} bytes large, w={} h={}\n", .{gcanvas.len, width, height});
+    print("canvas is {d} bytes large, w={} h={}\n", .{canvas.pixels.len, width, height});
 
     const p0: Coord2D = .{.x = 10, .y = 10};
-    const p1: Coord2D = .{.x = 100, .y = 200};
-    const p2: Coord2D = .{.x = 50, .y = 230};
-    const p3: Coord2D = .{.x = 350, .y = 15};
+    const p1: Coord2D = .{.x = 200, .y = 50};
+    const p2: Coord2D = .{.x = 50, .y = 75};
+    //const p3: Coord2D = .{.x = 350, .y = 15};
+    var t0: Triangle = .{.p0=p0, .p1=p1, .p2=p2};
+
 
     // static buffer allocator for interpolation function
     var fba = std.heap.FixedBufferAllocator.init(&interp_buffer_mem);
 
-    try drawLine(
-        p0,
-        p1,
+    try drawWireTriangle(
+        t0,
         White,
-        &gcanvas,
         fba.allocator(),
     );
 
-    fba.reset();
-
-    try drawLine(
-        p2,
-        p3,
-        White,
-        &gcanvas,
+    try drawFillTriangle(
+        &t0,
+        Green,
         fba.allocator(),
     );
 
-    try utils.write_canvas(&gcanvas, "rasterizer_test.ppm");
+    try utils.write_canvas(&canvas.pixels, "rasterizer_test.ppm");
 }

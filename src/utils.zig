@@ -35,11 +35,17 @@ pub const Pixel = struct {
 // type alias for colors
 pub const Color = Pixel;
 
-pub fn put_canvas(canvas: []Pixel, x: usize, y: usize, color: Color) void {
-    canvas[x + (y * width)].r = color.r;
-    canvas[x + (y * width)].g = color.g;
-    canvas[x + (y * width)].b = color.b;
-}
+pub const Canvas = struct {
+    width: usize,
+    height: usize,
+    pixels: [width * height]Pixel,
+
+    pub fn put(self: *Canvas, x: usize, y: usize, color: Color) void {
+        self.pixels[x + (y * width)].r = color.r;
+        self.pixels[x + (y * width)].g = color.g;
+        self.pixels[x + (y * width)].b = color.b;
+    }
+};
 
 pub fn write_canvas(canvas: []Pixel, path: []const u8) !void {
     var file = try std.fs.cwd().createFile(path, .{ .read = true });
